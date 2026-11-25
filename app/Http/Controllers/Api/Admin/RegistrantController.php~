@@ -1,0 +1,50 @@
+<?php
+
+namespace App\Http\Controllers\Api\Admin;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use App\Models\Registrant;
+use Illuminate\Validation\Rule;
+
+class RegistrantController extends Controller
+{
+    public function index(Request $request) {
+        $page = max(1, (int) $request->query('page', 1));
+        $perPage = min(100, max(1, (int) $request->query('perPage', 10)));
+        $search = trim((string) $request->query('search', ''));
+        $query = Registrant::with('category');
+        if ($search !== '') {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                    ->orWhere('email', 'like', "%{$search}%");
+            });
+        }
+        $total = (clone $query)->count();
+        $row = $query->orderByDesc('registered_at')
+            ->orderByDesc('id')
+            ->skip(($page - 1) * $perPage)
+            ->take($perPage)
+            ->get();
+        return response()->json([
+            'data' => $row->map(fn (Registrant $registrant) => $registrant->toArrayAdmin()),
+            'meta' => [
+                'page' => $page,
+                'per_page' => $perPage,
+                'total' => $total,
+                'last_page' => max(1, (int) ceil($total/$perPage)),
+            ],
+        ], 200);
+    }
+
+    public function updateGoodie(Request $request, $id) {
+        $registrant = Registrant::find($id);
+        if (! $registrant) {
+            return response()->json(['error' => 'Registrant not found'], 404);
+        } $data = $request->validate([
+            'goodie_status' => ['required', Rule::in(['pending', 'collected'])],
+        ]);
+        $registrant->update($data);
+        return response()->json($registrant->load('category')->toArrayAdmin(), 200);
+    }
+}
